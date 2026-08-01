@@ -3,12 +3,8 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../src/lib/prisma";
 
 async function main() {
-  const email = process.env.SEED_USER_EMAIL;
-  const password = process.env.SEED_USER_PASSWORD;
-
-  if (!email || !password) {
-    throw new Error("Set SEED_USER_EMAIL and SEED_USER_PASSWORD in .env before seeding.");
-  }
+  const email = process.env.SEED_USER_EMAIL || "foo@bar.com";
+  const password = process.env.SEED_USER_PASSWORD || "buz";
 
   const hashedPassword = await bcrypt.hash(password, 10);
   const user = await prisma.user.upsert({
