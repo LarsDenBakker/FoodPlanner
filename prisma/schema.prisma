@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  hashedPassword String
+  name           String?
+  createdAt      DateTime @default(now())
+}
+
+enum MealSlot {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+model Recipe {
+  id           String   @id @default(cuid())
+  title        String
+  description  String?
+  instructions String
+  servings     Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ingredients     RecipeIngredient[]
+  mealPlanEntries MealPlanEntry[]
+}
+
+model RecipeIngredient {
+  id        String  @id @default(cuid())
+  recipeId  String
+  recipe    Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  name      String
+  quantity  Float?
+  unit      String?
+  notes     String?
+  sortOrder Int     @default(0)
+
+  @@index([recipeId])
+}
+
+model MealPlanEntry {
+  id        String   @id @default(cuid())
+  date      DateTime
+  mealSlot  MealSlot
+  recipeId  String
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  servings  Int?
+  createdAt DateTime @default(now())
+
+  @@index([date])
+}
+
+model PantryItem {
+  id        String   @id @default(cuid())
+  name      String
+  quantity  Float?
+  unit      String?
+  category  String?
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+}
+
+model GroceryList {
+  id          String   @id @default(cuid())
+  startDate   DateTime
+  endDate     DateTime
+  generatedAt DateTime @default(now())
+
+  items GroceryListItem[]
+
+  @@index([startDate, endDate])
+}
+
+model GroceryListItem {
+  id                String      @id @default(cuid())
+  groceryListId     String
+  groceryList       GroceryList @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
+  name              String
+  unit              String?
+  requiredQuantity  Float?
+  pantryQuantity    Float?
+  remainingQuantity Float?
+  unitMismatch      Boolean     @default(false)
+  isChecked         Boolean     @default(false)
+
+  @@index([groceryListId])
+}
