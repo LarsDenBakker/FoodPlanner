@@ -1,0 +1,78 @@
+name: Preview smoke tests
+
+# Vercel's GitHub integration reports each deployment back to GitHub as a
+# deployment status, which carries the preview URL. Reacting to that is what
+# ties these tests to a PR: every push to the PR gets a fresh preview, and the
+# run reports back as a check on that commit.
+#
+# Note: `deployment_status` workflows always run the copy of this file on the
+# default branch, so this takes effect once it is merged — it will not run on
+# the PR that adds it.
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Deployment URL to smoke-test (e.g. https://foodhelper.vercel.app)"
+        required: true
+        type: string
+
+# A newer push to the same branch makes an in-flight run irrelevant.
+concurrency:
+  group: preview-smoke-${{ github.event.deployment.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Smoke-test the deployment
+    # Only successful, non-production deployments (or a manual run).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       github.event.deployment_status.environment != 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Resolve the deployment URL
+        id: target
+        run: |
+          url="${{ inputs.url || github.event.deployment_status.environment_url }}"
+          if [ -z "$url" ]; then
+            echo "::error::No deployment URL available on this event."
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Smoke-testing $url"
+
+      - uses: actions/checkout@v4
+        with:
+          # Test the code that was actually deployed.
+          ref: ${{ github.event.deployment.sha || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Run smoke tests
+        run: npm run test:preview
+        env:
+          DEPLOYMENT_URL: ${{ steps.target.outputs.url }}
+          # Without these the signed-in checks skip and only the public ones run.
+          SMOKE_USER_EMAIL: ${{ secrets.SEED_USER_EMAIL }}
+          SMOKE_USER_PASSWORD: ${{ secrets.SEED_USER_PASSWORD }}
+          # Only needed if the preview is behind Vercel Deployment Protection.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+      - name: Upload the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: playwright-report/
+          retention-days: 7

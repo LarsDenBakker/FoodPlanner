@@ -51,7 +51,8 @@ Three layers, each runnable on its own:
 npm run test              # unit + integration
 npm run test:unit         # fast, no database
 npm run test:integration  # against a real Postgres
-npm run test:e2e          # Playwright browser smoke test
+npm run test:e2e          # Playwright browser test, local dev server
+npm run test:preview      # smoke tests against a deployed URL
 ```
 
 ### Unit tests (`tests/unit`)
@@ -79,6 +80,36 @@ docker compose up -d
 createdb -h localhost -U foodhelper foodhelper_test   # once
 npm run test:integration
 ```
+
+### Deployment smoke tests (`tests/smoke`)
+
+Read-only checks against an environment that is already live — a PR's Vercel
+preview, or production. `.github/workflows/preview-smoke-tests.yml` runs them
+automatically whenever Vercel reports a successful preview deployment, so each
+PR gets its own deployment verified.
+
+```bash
+DEPLOYMENT_URL=https://foodhelper-abc123.vercel.app \
+SMOKE_USER_EMAIL=... SMOKE_USER_PASSWORD=... \
+npm run test:preview
+```
+
+They cover: the login page renders, every protected route redirects a signed-out
+visitor to it, bad credentials are rejected, signing in issues an httpOnly and
+secure session cookie, each signed-in page server-renders (which only works if
+the deployment can reach Postgres), and signing out re-protects the app.
+
+They deliberately **write nothing**, because a Vercel preview normally inherits
+production's `DATABASE_URL` — a preview that creates recipes would be creating
+them in real household data. Give previews their own database if you want
+write coverage here.
+
+Repository secrets:
+
+| Secret | Needed for |
+| --- | --- |
+| `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` | the signed-in checks; without them those tests skip and only the public ones run |
+| `VERCEL_AUTOMATION_BYPASS_SECRET` | only if the preview is behind Vercel Deployment Protection (Project Settings → Deployment Protection → Protection Bypass for Automation) |
 
 ### End-to-end test (`tests/e2e`)
 
