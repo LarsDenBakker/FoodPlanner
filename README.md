@@ -28,11 +28,14 @@ login gate (one shared household login — not per-user data).
    `DATABASE_URL` already matches the Compose service. Generate a
    `SESSION_SECRET` with `openssl rand -base64 32`, and set `SEED_USER_EMAIL` /
    `SEED_USER_PASSWORD` for the initial login.
-4. Apply the schema and seed sample data:
+4. Apply the schema:
    ```bash
    npx prisma migrate dev
-   npx prisma db seed
    ```
+   `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` are checked directly against the
+   login form, so you can sign in as soon as they're set in the environment —
+   no database row required. Running `npx prisma db seed` is optional and
+   only useful for pre-populating sample recipes/pantry/meal-plan data.
 5. Start the dev server:
    ```bash
    npm run dev
