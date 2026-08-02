@@ -17,6 +17,7 @@ import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import path from "node:path";
+import { isProtectionResponse } from "./lib/vercel-protection.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -97,9 +98,12 @@ async function probe(url) {
       vercelCache: headers["x-vercel-cache"] ?? null,
       // Deployment Protection answers every request with Vercel's own SSO page,
       // which otherwise shows up as a pile of confusing selector failures.
-      looksProtected:
-        response.status === 401 ||
-        /\/sso\/|_vercel\/sso|Authentication Required/i.test(`${headers.location ?? ""}${body.slice(0, 4000)}`),
+      looksProtected: isProtectionResponse({
+        status: response.status,
+        location: headers.location,
+        body,
+        baseUrl: target,
+      }),
       bodyPreview: body.slice(0, 600),
     };
   } catch (error) {

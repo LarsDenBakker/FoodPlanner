@@ -8,6 +8,8 @@
  * one clear message instead of a screen of selector timeouts.
  */
 
+import { isProtectionResponse } from "./lib/vercel-protection.mjs";
+
 const rawUrl = process.env.DEPLOYMENT_URL ?? process.env.PREVIEW_URL ?? "";
 const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? "";
 
@@ -40,9 +42,12 @@ async function attempt() {
   const vercelId = response.headers.get("x-vercel-id") ?? "—";
   const vercelError = response.headers.get("x-vercel-error");
 
-  const looksProtected =
-    response.status === 401 ||
-    /\/sso\/|_vercel\/sso|Authentication Required/i.test(`${location}${body.slice(0, 4000)}`);
+  const looksProtected = isProtectionResponse({
+    status: response.status,
+    location,
+    body,
+    baseUrl,
+  });
 
   return { response, body, location, vercelId, vercelError, looksProtected };
 }
