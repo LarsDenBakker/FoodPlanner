@@ -45,16 +45,48 @@ login gate (one shared household login — not per-user data).
 
 ## Tests
 
-An end-to-end smoke test (Playwright) covers the full flow: login → create a
-recipe → stock the pantry → assign it in the planner → generate the grocery
-list → verify need-to-buy vs. already-have → delete the recipe → sign out.
+Three layers, each runnable on its own:
 
 ```bash
-npx playwright test
+npm run test              # unit + integration
+npm run test:unit         # fast, no database
+npm run test:integration  # against a real Postgres
+npm run test:e2e          # Playwright browser smoke test
 ```
 
-It boots the dev server itself and needs `DATABASE_URL`, `SEED_USER_EMAIL`,
-and `SEED_USER_PASSWORD` to be set (it logs in as the seeded user).
+### Unit tests (`tests/unit`)
+
+Pure logic, no database and no Next request scope: grocery-list aggregation
+(serving scaling, ingredient merging, pantry subtraction, unit mismatches),
+week/date maths, and session cookie signing and verification.
+
+### Integration tests (`tests/integration`)
+
+The server actions and data-access functions run against a real Postgres, so
+the Prisma queries, cascades, and transactions are genuinely exercised. Only
+the Next.js request-scoped APIs are stubbed — `cookies()`, `revalidatePath()`,
+and `redirect()` (which still throws, as the real one does, so control flow
+matches production).
+
+They use a **separate database** from your dev one, because every test empties
+all tables. The default is `foodhelper_test` on the Compose Postgres; override
+it with `TEST_DATABASE_URL`. A guard refuses to run if the target database name
+doesn't contain `test`, and migrations are applied automatically before the
+suite.
+
+```bash
+docker compose up -d
+createdb -h localhost -U foodhelper foodhelper_test   # once
+npm run test:integration
+```
+
+### End-to-end test (`tests/e2e`)
+
+A Playwright smoke test covering the full flow: login → create a recipe → stock
+the pantry → assign it in the planner → generate the grocery list → verify
+need-to-buy vs. already-have → delete the recipe → sign out. It boots the dev
+server itself and needs `DATABASE_URL`, `SEED_USER_EMAIL`, and
+`SEED_USER_PASSWORD` to be set (it logs in as the seed user).
 
 ## Deploying
 
