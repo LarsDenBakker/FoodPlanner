@@ -1,6 +1,10 @@
 import "dotenv/config";
 import { defineConfig, devices } from "@playwright/test";
 
+// Set in sandboxes that ship a preinstalled browser; CI and local runs use the
+// browser Playwright installs itself.
+const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
@@ -19,7 +23,10 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"], launchOptions: { executablePath: "/opt/pw-browsers/chromium" } },
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(chromiumPath ? { launchOptions: { executablePath: chromiumPath } } : {}),
+      },
     },
   ],
 });
