@@ -2,12 +2,12 @@ name: Preview smoke tests
 
 # Vercel's GitHub integration reports each deployment back to GitHub as a
 # deployment status, which carries the preview URL. Reacting to that is what
-# ties these tests to a PR: every push to the PR gets a fresh preview, and the
+# ties these tests to a PR: every push to the PR gets a fresh preview, and this
 # run reports back as a check on that commit.
 #
 # Note: `deployment_status` workflows always run the copy of this file on the
-# default branch, so this takes effect once it is merged — it will not run on
-# the PR that adds it.
+# default branch, so this takes effect once merged — it will not run on the PR
+# that adds it. Use the manual trigger to try it before then.
 on:
   deployment_status:
   workflow_dispatch:
@@ -16,6 +16,10 @@ on:
         description: "Deployment URL to smoke-test (e.g. https://foodhelper.vercel.app)"
         required: true
         type: string
+
+permissions:
+  contents: read
+  pull-requests: write
 
 # A newer push to the same branch makes an in-flight run irrelevant.
 concurrency:
@@ -31,19 +35,21 @@ jobs:
       (github.event.deployment_status.state == 'success' &&
        github.event.deployment_status.environment != 'Production')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+
+    env:
+      DEPLOYMENT_URL: ${{ inputs.url || github.event.deployment_status.environment_url }}
+      # Only needed if the preview is behind Vercel Deployment Protection.
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
 
     steps:
-      - name: Resolve the deployment URL
-        id: target
+      - name: Check a deployment URL is available
         run: |
-          url="${{ inputs.url || github.event.deployment_status.environment_url }}"
-          if [ -z "$url" ]; then
+          if [ -z "$DEPLOYMENT_URL" ]; then
             echo "::error::No deployment URL available on this event."
             exit 1
           fi
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "Smoke-testing $url"
+          echo "Smoke-testing $DEPLOYMENT_URL"
 
       - uses: actions/checkout@v4
         with:
@@ -57,17 +63,44 @@ jobs:
 
       - run: npm ci
 
+      # Fails fast and legibly on the two common cases: Deployment Protection,
+      # and a deployment that is not serving yet.
+      - name: Preflight the deployment
+        run: node scripts/check-deployment.mjs
+
       - run: npx playwright install --with-deps chromium
 
       - name: Run smoke tests
         run: npm run test:preview
         env:
-          DEPLOYMENT_URL: ${{ steps.target.outputs.url }}
           # Without these the signed-in checks skip and only the public ones run.
           SMOKE_USER_EMAIL: ${{ secrets.SEED_USER_EMAIL }}
           SMOKE_USER_PASSWORD: ${{ secrets.SEED_USER_PASSWORD }}
-          # Only needed if the preview is behind Vercel Deployment Protection.
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+      # ---- Everything below runs only when something above failed ----
+
+      - name: Collect Vercel diagnostics
+        if: failure()
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          SMOKE_USER_PASSWORD: ${{ secrets.SEED_USER_PASSWORD }}
+        run: node scripts/vercel-diagnostics.mjs
+
+      - name: Add the diagnostics to the run summary
+        if: failure()
+        run: cat vercel-diagnostics/report.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      # Raw logs go to the artifact only — never into a PR comment, which may be
+      # publicly visible.
+      - name: Upload Vercel diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vercel-diagnostics-${{ github.run_id }}
+          path: vercel-diagnostics/
+          retention-days: 7
 
       - name: Upload the Playwright report
         if: ${{ !cancelled() }}
@@ -76,3 +109,74 @@ jobs:
           name: playwright-report-${{ github.run_id }}
           path: playwright-report/
           retention-days: 7
+
+      - name: Comment the diagnostics on the pull request
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sha = context.payload.deployment?.sha || context.sha;
+
+            const { data: prs } =
+              await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: sha,
+              });
+            const pr = prs.find((candidate) => candidate.state === 'open');
+            if (!pr) {
+              core.info('No open pull request for this commit; skipping the comment.');
+              return;
+            }
+
+            let report = '';
+            try {
+              report = fs.readFileSync('vercel-diagnostics/report.md', 'utf8');
+            } catch {
+              report = 'Diagnostics could not be collected — see the workflow run for details.';
+            }
+
+            // Keep well under GitHub's comment size limit.
+            const MAX = 55000;
+            if (report.length > MAX) {
+              report = `${report.slice(0, MAX)}\n\n…truncated. See the \`vercel-diagnostics\` artifact.`;
+            }
+
+            const marker = '<!-- preview-smoke-diagnostics -->';
+            const body = [
+              marker,
+              `### ❌ Preview smoke tests failed`,
+              '',
+              `[View the workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              '',
+              report,
+              '',
+              '---',
+              '_Generated by [Claude Code](https://claude.ai/code)_',
+            ].join('\n');
+
+            // Update the existing comment rather than stacking a new one per push.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body,
+              });
+            }

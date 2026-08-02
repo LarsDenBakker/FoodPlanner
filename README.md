@@ -104,11 +104,33 @@ production's `DATABASE_URL` — a preview that creates recipes would be creating
 them in real household data. Give previews their own database if you want
 write coverage here.
 
-Repository secrets:
+#### When a run fails
+
+The workflow debugs the deployment for you rather than leaving you with a red
+check. On failure it runs `scripts/vercel-diagnostics.mjs`, which collects:
+
+- an HTTP probe of the deployment (status, `x-vercel-id`, `x-vercel-error`)
+- the deployment's state via `vercel inspect`
+- the **build log** via `vercel inspect --logs`
+- **runtime errors** via `vercel logs --level error`
+
+The full output is uploaded as the `vercel-diagnostics` artifact, and a redacted
+summary is posted as a single, updated-in-place PR comment. Connection strings,
+JWTs, bearer tokens and known secret values are stripped before anything is
+posted — raw logs stay in the artifact, which only collaborators can read.
+
+A preflight step runs *before* the browser, so the two most common failures —
+Deployment Protection, and a deployment that is not serving yet — fail with one
+clear message instead of a screen of selector timeouts.
+
+#### Repository secrets
 
 | Secret | Needed for |
 | --- | --- |
-| `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` | the signed-in checks; without them those tests skip and only the public ones run |
+| `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` | the signed-in checks. Must match the **Preview** environment values in Vercel. Without them those tests skip and only the public ones run |
+| `VERCEL_TOKEN` | reading build and runtime logs when a run fails. Without it, diagnostics fall back to the HTTP probe alone |
+| `VERCEL_TEAM_ID` | only for team-owned projects (`--scope` for the Vercel CLI) |
+| `VERCEL_PROJECT_ID` | narrows the runtime log query; optional |
 | `VERCEL_AUTOMATION_BYPASS_SECRET` | only if the preview is behind Vercel Deployment Protection (Project Settings → Deployment Protection → Protection Bypass for Automation) |
 
 ### End-to-end test (`tests/e2e`)
