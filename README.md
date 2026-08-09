@@ -147,11 +147,20 @@ The app is designed to deploy to Vercel with a hosted Postgres database
 (Vercel Postgres / Neon, or any standard Postgres provider):
 
 1. Create a Postgres database and copy its connection string.
-2. In the Vercel project settings, set `DATABASE_URL`, `SESSION_SECRET`, and
-   optionally re-run the seed script (`npx prisma db seed`) against that
-   database to create the household login.
-3. Deploy. `next build` runs the standard production build; no database
-   access happens at build time.
+2. In the Vercel project settings, set `DATABASE_URL`, `SESSION_SECRET`,
+   `SEED_USER_EMAIL`, and `SEED_USER_PASSWORD` — for **every environment you
+   deploy to** (Production and Preview are scoped separately in Vercel;
+   setting a variable for one doesn't set it for the other).
+3. Deploy. The build runs `prisma migrate deploy` before `next build`, so
+   pending migrations are applied automatically to whichever `DATABASE_URL`
+   is configured for that environment — no manual migration step needed, and
+   a misconfigured/unmigrated database now fails the build loudly instead of
+   deploying an app that 500s on every request.
+
+   If Preview and Production share one database, this also means a
+   schema-changing migration on a feature branch takes effect the moment
+   that branch's preview deploys — not just on merge to `main`. Keep
+   migrations backward-compatible if that matters for your workflow.
 
 ## How the grocery list works
 
