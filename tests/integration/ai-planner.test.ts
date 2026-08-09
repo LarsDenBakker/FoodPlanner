@@ -29,7 +29,14 @@ describe("suggestMealPlan", () => {
   it("checks the session before calling the AI", async () => {
     const recipe = await createRecipe();
     mockProposalResponse([
-      { date: MONDAY, mealSlot: "DINNER", recipeId: recipe.id, servings: 4, rationale: "Uses beef." },
+      {
+        date: MONDAY,
+        mealSlot: "DINNER",
+        recipeId: recipe.id,
+        newRecipe: null,
+        servings: 4,
+        rationale: "Uses beef.",
+      },
     ]);
 
     await suggestMealPlan(undefined, rangeForm());
@@ -40,13 +47,73 @@ describe("suggestMealPlan", () => {
   it("returns the model's proposals for empty slots", async () => {
     const recipe = await createRecipe();
     mockProposalResponse([
-      { date: MONDAY, mealSlot: "DINNER", recipeId: recipe.id, servings: 4, rationale: "Uses beef." },
+      {
+        date: MONDAY,
+        mealSlot: "DINNER",
+        recipeId: recipe.id,
+        newRecipe: null,
+        servings: 4,
+        rationale: "Uses beef.",
+      },
     ]);
 
     const result = await suggestMealPlan(undefined, rangeForm());
 
     expect(result?.proposals).toEqual([
-      { date: MONDAY, mealSlot: "DINNER", recipeId: recipe.id, servings: 4, rationale: "Uses beef." },
+      {
+        date: MONDAY,
+        mealSlot: "DINNER",
+        recipeId: recipe.id,
+        newRecipe: null,
+        servings: 4,
+        rationale: "Uses beef.",
+      },
+    ]);
+  });
+
+  it("returns a brand-new recipe proposal when the model doesn't reuse the library", async () => {
+    await createRecipe();
+    const newRecipe = {
+      title: "Weeknight Stir Fry",
+      instructions: "Stir fry everything together.",
+      ingredients: [{ name: "broccoli", quantity: 1, unit: "head" }],
+    };
+    mockProposalResponse([
+      {
+        date: MONDAY,
+        mealSlot: "DINNER",
+        recipeId: null,
+        newRecipe,
+        servings: 4,
+        rationale: "Nothing in the library uses broccoli.",
+      },
+    ]);
+
+    const result = await suggestMealPlan(undefined, rangeForm());
+
+    expect(result?.proposals).toEqual([
+      {
+        date: MONDAY,
+        mealSlot: "DINNER",
+        recipeId: null,
+        newRecipe,
+        servings: 4,
+        rationale: "Nothing in the library uses broccoli.",
+      },
+    ]);
+  });
+
+  it("calls the AI and can still get new-recipe proposals when the library is empty", async () => {
+    const newRecipe = { title: "Simple Soup", instructions: "Simmer.", ingredients: [] };
+    mockProposalResponse([
+      { date: MONDAY, mealSlot: "DINNER", recipeId: null, newRecipe, servings: 4, rationale: "Quick." },
+    ]);
+
+    const result = await suggestMealPlan(undefined, rangeForm());
+
+    expect(messagesParseMock).toHaveBeenCalled();
+    expect(result?.proposals).toEqual([
+      { date: MONDAY, mealSlot: "DINNER", recipeId: null, newRecipe, servings: 4, rationale: "Quick." },
     ]);
   });
 
@@ -56,7 +123,14 @@ describe("suggestMealPlan", () => {
       data: { date: day(MONDAY), mealSlot: "DINNER", recipeId: recipe.id },
     });
     mockProposalResponse([
-      { date: MONDAY, mealSlot: "DINNER", recipeId: recipe.id, servings: 4, rationale: "Uses beef." },
+      {
+        date: MONDAY,
+        mealSlot: "DINNER",
+        recipeId: recipe.id,
+        newRecipe: null,
+        servings: 4,
+        rationale: "Uses beef.",
+      },
     ]);
 
     const result = await suggestMealPlan(undefined, rangeForm());
@@ -72,6 +146,7 @@ describe("suggestMealPlan", () => {
         date: MONDAY,
         mealSlot: "DINNER",
         recipeId: "hallucinated-id",
+        newRecipe: null,
         servings: 4,
         rationale: "Uses beef.",
       },
@@ -83,11 +158,23 @@ describe("suggestMealPlan", () => {
     expect(result?.proposals).toBeUndefined();
   });
 
-  it("returns an error when there are no recipes to suggest from", async () => {
+  it("drops a proposal that sets both recipeId and newRecipe", async () => {
+    const recipe = await createRecipe();
+    mockProposalResponse([
+      {
+        date: MONDAY,
+        mealSlot: "DINNER",
+        recipeId: recipe.id,
+        newRecipe: { title: "Soup", instructions: "Simmer.", ingredients: [] },
+        servings: 4,
+        rationale: "Ambiguous.",
+      },
+    ]);
+
     const result = await suggestMealPlan(undefined, rangeForm());
 
     expect(result?.error).toBeDefined();
-    expect(messagesParseMock).not.toHaveBeenCalled();
+    expect(result?.proposals).toBeUndefined();
   });
 
   it("returns an error when the model call throws", async () => {

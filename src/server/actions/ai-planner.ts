@@ -10,12 +10,34 @@ import { getMealPlanForRange } from "@/server/data/meal-plan";
 import { filterProposalsAgainstExisting, type MealPlanProposal } from "@/lib/ai-planner";
 import { formatISODate } from "@/lib/date";
 
+const newRecipeIngredientSchema = z.object({
+  name: z.string(),
+  quantity: z.number().nullable(),
+  unit: z.string().nullable(),
+});
+
 const proposalResponseSchema = z.object({
   proposals: z.array(
     z.object({
       date: z.string().describe("ISO date (YYYY-MM-DD), within the requested week"),
       mealSlot: z.enum(["BREAKFAST", "LUNCH", "DINNER", "SNACK"]),
-      recipeId: z.string().describe("Must be one of the recipe ids listed in the prompt"),
+      recipeId: z
+        .string()
+        .nullable()
+        .describe(
+          "Set to an id from the recipe library to reuse an existing recipe. Set to null when " +
+            "proposing a brand-new recipe via newRecipe instead."
+        ),
+      newRecipe: z
+        .object({
+          title: z.string().describe("A short, appetizing recipe title"),
+          instructions: z.string().describe("Brief cooking instructions"),
+          ingredients: z.array(newRecipeIngredientSchema),
+        })
+        .nullable()
+        .describe(
+          "Set to propose a brand-new recipe not in the library. Leave null when reusing recipeId instead."
+        ),
       servings: z.number().int().nullable(),
       rationale: z.string().describe("One short sentence: why this recipe, this slot"),
     })
@@ -25,9 +47,16 @@ const proposalResponseSchema = z.object({
 const SYSTEM_PROMPT = `You are a meal-planning assistant for a household app.
 Given a recipe library, current pantry stock, and meals already planned for a
 week, propose recipes for the remaining EMPTY meal slots only -- never
-propose a slot that's already listed as planned. Use recipe ids exactly as
-given in the recipe library; never invent one. Prefer recipes that use
-ingredients already in the pantry. Keep each rationale to one short sentence.`;
+propose a slot that's already listed as planned.
+
+The recipe library is a source of suggestions, not a hard constraint. Prefer
+reusing a recipe from the library (set recipeId, leave newRecipe null) when
+one fits well, especially if it uses ingredients already in the pantry. When
+nothing in the library fits well, propose a brand-new recipe instead: leave
+recipeId null and fill in newRecipe with a title, brief instructions, and an
+ingredient list. Every proposal must set exactly one of recipeId or
+newRecipe. Use recipe ids exactly as given in the recipe library; never
+invent one. Keep each rationale to one short sentence.`;
 
 export type MealPlanProposalState = { proposals?: MealPlanProposal[]; error?: string } | undefined;
 
@@ -51,10 +80,6 @@ export async function suggestMealPlan(
     getPantryItems(),
     getMealPlanForRange(start, end),
   ]);
-
-  if (recipes.length === 0) {
-    return { error: "Add some recipes before asking for suggestions." };
-  }
 
   const userContext = buildWeekContext({ recipes, pantryItems, existingEntries, startISO, endISO });
 
@@ -97,9 +122,10 @@ function buildWeekContext({
   startISO: string;
   endISO: string;
 }) {
-  const recipeLines = recipes
-    .map((r) => `- id: ${r.id} | ${r.title} | ingredients: ${r.ingredients.map((i) => i.name).join(", ")}`)
-    .join("\n");
+  const recipeLines =
+    recipes
+      .map((r) => `- id: ${r.id} | ${r.title} | ingredients: ${r.ingredients.map((i) => i.name).join(", ")}`)
+      .join("\n") || "(no recipes yet -- propose brand-new ones via newRecipe)";
 
   const pantryLines =
     pantryItems

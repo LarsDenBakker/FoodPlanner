@@ -6,10 +6,23 @@ function proposal(overrides: Partial<MealPlanProposal> = {}): MealPlanProposal {
     date: "2026-07-27",
     mealSlot: "DINNER",
     recipeId: "recipe_1",
+    newRecipe: null,
     servings: 4,
     rationale: "Uses up what's in the pantry.",
     ...overrides,
   };
+}
+
+function newRecipeProposal(overrides: Partial<MealPlanProposal> = {}): MealPlanProposal {
+  return proposal({
+    recipeId: null,
+    newRecipe: {
+      title: "Weeknight Stir Fry",
+      instructions: "Stir fry everything together.",
+      ingredients: [{ name: "broccoli", quantity: 1, unit: "head" }],
+    },
+    ...overrides,
+  });
 }
 
 const knownRecipes = [{ id: "recipe_1" }, { id: "recipe_2" }];
@@ -61,5 +74,51 @@ describe("filterProposalsAgainstExisting", () => {
 
     const result = filterProposalsAgainstExisting([okay, badRecipe, occupiedSlot], existing, knownRecipes);
     expect(result).toEqual([okay]);
+  });
+
+  it("keeps a well-formed brand-new recipe proposal", () => {
+    const result = filterProposalsAgainstExisting([newRecipeProposal()], [], knownRecipes);
+    expect(result).toEqual([newRecipeProposal()]);
+  });
+
+  it("drops a new-recipe proposal with a blank title", () => {
+    const result = filterProposalsAgainstExisting(
+      [newRecipeProposal({ newRecipe: { title: "  ", instructions: "Cook it.", ingredients: [] } })],
+      [],
+      knownRecipes
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("drops a new-recipe proposal with blank instructions", () => {
+    const result = filterProposalsAgainstExisting(
+      [newRecipeProposal({ newRecipe: { title: "Soup", instructions: "  ", ingredients: [] } })],
+      [],
+      knownRecipes
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("drops a proposal that sets neither recipeId nor newRecipe", () => {
+    const result = filterProposalsAgainstExisting(
+      [proposal({ recipeId: null, newRecipe: null })],
+      [],
+      knownRecipes
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("drops a proposal that sets both recipeId and newRecipe", () => {
+    const result = filterProposalsAgainstExisting(
+      [newRecipeProposal({ recipeId: "recipe_1" })],
+      [],
+      knownRecipes
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("drops a new-recipe proposal that collides with an already-planned slot", () => {
+    const existing = [{ date: new Date("2026-07-27T00:00:00Z"), mealSlot: "DINNER" as const }];
+    expect(filterProposalsAgainstExisting([newRecipeProposal()], existing, knownRecipes)).toEqual([]);
   });
 });
