@@ -27,10 +27,11 @@ export default defineConfig({
   testDir: "./tests/smoke",
   fullyParallel: true,
   workers: process.env.CI ? 2 : undefined,
-  // A cold serverless function or a database waking up is worth one more try.
-  retries: process.env.CI ? 2 : 0,
-  timeout: 60_000,
-  expect: { timeout: 15_000 },
+  // One retry covers a cold serverless function; a real failure shouldn't cost
+  // three attempts before the run reports it.
+  retries: process.env.CI ? 1 : 0,
+  timeout: 20_000,
+  expect: { timeout: 8_000 },
   reporter: process.env.CI
     ? [["github"], ["list"], ["html", { open: "never" }]]
     : [["list"]],
