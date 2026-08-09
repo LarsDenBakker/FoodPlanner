@@ -4,6 +4,7 @@ import { getMealPlanForRange } from "@/server/data/meal-plan";
 import { getRecipes } from "@/server/data/recipes";
 import { deleteMealPlanEntry } from "@/server/actions/meal-plan";
 import { AddMealEntryForm } from "@/components/AddMealEntryForm";
+import { SuggestMealsButton } from "@/components/ai-planner/SuggestMealsButton";
 import { MealSlot } from "@/generated/prisma/enums";
 import { getWeekRange, addWeeks, formatISODate, formatDayLabel, formatRangeLabel } from "@/lib/date";
 
@@ -92,6 +93,8 @@ export default async function PlannerPage({
           ))}
         </div>
       </div>
+
+      <SuggestMealsButton start={formatISODate(start)} end={formatISODate(end)} recipes={recipes} />
     </div>
   );
 }

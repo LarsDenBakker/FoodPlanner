@@ -29,9 +29,18 @@ vi.mock("@/lib/dal", async () => {
   return { verifySession: verifySessionMock };
 });
 
+// Never call the real Anthropic API in tests -- every AI-triggered action is
+// tested against a canned `parsed_output`, the same way the DB is real but
+// the LLM call is not.
+vi.mock("@/lib/anthropic", async () => {
+  const { anthropicMock } = await import("../helpers/anthropic-mock");
+  return { anthropic: anthropicMock, AI_PLANNER_MODEL: "claude-sonnet-5" };
+});
+
 import { assertIsTestDatabase } from "./database-url.mjs";
 import { clearCookies } from "../helpers/cookie-jar";
 import { resetNextMocks } from "../helpers/next-mocks";
+import { resetAnthropicMock } from "../helpers/anthropic-mock";
 import { prisma, resetDatabase } from "../helpers/db";
 
 assertIsTestDatabase(process.env.DATABASE_URL ?? "");
@@ -40,6 +49,7 @@ beforeEach(async () => {
   await resetDatabase();
   clearCookies();
   resetNextMocks();
+  resetAnthropicMock();
 });
 
 afterAll(async () => {

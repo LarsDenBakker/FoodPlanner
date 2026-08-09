@@ -12,6 +12,14 @@ type IngredientInput = {
   notes: string | null;
 };
 
+export type RecipeInput = {
+  title: string;
+  description: string | null;
+  instructions: string;
+  servings: number | null;
+  ingredients: IngredientInput[];
+};
+
 function parseIngredients(formData: FormData): IngredientInput[] {
   const names = formData.getAll("ingredientName") as string[];
   const quantities = formData.getAll("ingredientQuantity") as string[];
@@ -28,47 +36,59 @@ function parseIngredients(formData: FormData): IngredientInput[] {
     .filter((ingredient) => ingredient.name.length > 0);
 }
 
-export async function createRecipe(formData: FormData) {
-  await verifySession();
-
+function parseRecipeInput(formData: FormData): RecipeInput {
   const title = String(formData.get("title") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim() || null;
   const instructions = String(formData.get("instructions") ?? "").trim();
   const servingsRaw = String(formData.get("servings") ?? "").trim();
   const servings = servingsRaw ? Number(servingsRaw) : null;
-  const ingredients = parseIngredients(formData);
 
-  if (!title || !instructions) {
+  return { title, description, instructions, servings, ingredients: parseIngredients(formData) };
+}
+
+/** Shared by every recipe-creation path so the "title and instructions are required" rule lives in one place. */
+async function insertRecipe(input: RecipeInput) {
+  if (!input.title || !input.instructions) {
     throw new Error("Title and instructions are required.");
   }
 
-  const recipe = await prisma.recipe.create({
+  return prisma.recipe.create({
     data: {
-      title,
-      description,
-      instructions,
-      servings,
+      title: input.title,
+      description: input.description,
+      instructions: input.instructions,
+      servings: input.servings,
       ingredients: {
-        create: ingredients.map((ingredient, index) => ({ ...ingredient, sortOrder: index })),
+        create: input.ingredients.map((ingredient, index) => ({ ...ingredient, sortOrder: index })),
       },
     },
   });
+}
 
+export async function createRecipe(formData: FormData) {
+  await verifySession();
+  const recipe = await insertRecipe(parseRecipeInput(formData));
   revalidatePath("/recipes");
   redirect(`/recipes/${recipe.id}`);
+}
+
+/**
+ * Same as createRecipe, but returns the created recipe instead of redirecting --
+ * for callers that create a recipe as one step of a larger flow (e.g. accepting
+ * an AI-proposed new recipe into the meal plan) and need to stay on the page.
+ */
+export async function createRecipeQuietly(input: RecipeInput) {
+  await verifySession();
+  const recipe = await insertRecipe(input);
+  revalidatePath("/recipes");
+  return { id: recipe.id };
 }
 
 export async function updateRecipe(id: string, formData: FormData) {
   await verifySession();
 
-  const title = String(formData.get("title") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim() || null;
-  const instructions = String(formData.get("instructions") ?? "").trim();
-  const servingsRaw = String(formData.get("servings") ?? "").trim();
-  const servings = servingsRaw ? Number(servingsRaw) : null;
-  const ingredients = parseIngredients(formData);
-
-  if (!title || !instructions) {
+  const input = parseRecipeInput(formData);
+  if (!input.title || !input.instructions) {
     throw new Error("Title and instructions are required.");
   }
 
@@ -77,12 +97,12 @@ export async function updateRecipe(id: string, formData: FormData) {
     prisma.recipe.update({
       where: { id },
       data: {
-        title,
-        description,
-        instructions,
-        servings,
+        title: input.title,
+        description: input.description,
+        instructions: input.instructions,
+        servings: input.servings,
         ingredients: {
-          create: ingredients.map((ingredient, index) => ({ ...ingredient, sortOrder: index })),
+          create: input.ingredients.map((ingredient, index) => ({ ...ingredient, sortOrder: index })),
         },
       },
     }),
